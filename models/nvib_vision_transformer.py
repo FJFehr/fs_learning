@@ -359,7 +359,7 @@ class NvibVisionTransformer(nn.Module):
 
         trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
-        # self.apply(self._init_weights)
+        self.apply(self._init_weights)
         # Reinitialise ALL the NVIB parameters
         for i in range(0, len(self.blocks)):
             # if layer has attribute nvib_layer, then init_parameters
