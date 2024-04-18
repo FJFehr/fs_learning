@@ -4,6 +4,7 @@ from functools import partial
 import torch
 import torch.nn as nn
 
+from .nvib_layer import Nvib
 from .utils import trunc_normal_
 
 
@@ -81,6 +82,55 @@ class Attention(nn.Module):
         x = self.proj(x)
         x = self.proj_drop(x)
         return x, attn
+    
+class DenoisingAttention(nn.Module):
+    def __init__(
+        self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0.0, proj_drop=0.0
+    ):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = qk_scale or head_dim**-0.5
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.qkv_bias = qkv_bias
+
+    def forward(self, x, nvib_tuple=None):
+        
+        # NVIB: In training the key is z and is sampled
+        if nvib_tuple is not None:
+            z, pi, mu, logvar, alpha, mask = nvib_tuple
+
+        B, N, C = x.shape
+        # Breakdown the qkv layer
+        w_q, w_k, w_v = self.qkv.weight.split(C, dim=0)
+        if self.qkv_bias:
+            b_q, b_k, b_v = self.qkv.bias.split(C, dim=0)
+
+            q = x @ w_q.T + b_q
+            k = x @ w_k.T + b_k
+            v = x @ w_v.T + b_v
+        else:
+            q = x @ w_q.T
+            k = x @ w_k.T
+            v = x @ w_v.T
+    
+        q = q.reshape(B, N, self.num_heads, C // self.num_heads).permute(0,2,1,3)
+        k = k.reshape(B, N, self.num_heads, C // self.num_heads).permute(0,2,1,3) * self.scale
+        v = v.reshape(B, N, self.num_heads, C // self.num_heads).permute(0,2,1,3)
+
+
+        attn = (q @ k.transpose(-2, -1)) 
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x, attn
 
 
 class Block(nn.Module):
@@ -99,7 +149,26 @@ class Block(nn.Module):
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = Attention(
+
+        # NVIB
+        rng_state = torch.get_rng_state()
+        # Nvib layer
+        self.nvib_layer = Nvib(
+            size_in=dim,
+            size_out=dim,
+            prior_mu= None,
+            prior_var= None,
+            prior_log_alpha=(None),
+            prior_log_alpha_stdev=(None),
+            delta=1,
+            nheads=num_heads,
+            alpha_tau=20,
+            mu_tau=1,
+            stdev_tau=0,
+        )
+        torch.set_rng_state(rng_state)
+
+        self.attn = DenoisingAttention(
             dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
@@ -115,12 +184,27 @@ class Block(nn.Module):
         )
 
     def forward(self, x, return_attention=False):
-        y, attn = self.attn(self.norm1(x))
+        x_norm = self.norm1(x)
+        nvib_tuple = self.nvib_layer(x_norm)
+
+        # KL divergence loss
+        # Calculate KL divergences
+        kl_gaussian = self.nvib_layer.kl_gaussian(
+            mu=nvib_tuple[2],
+            logvar=nvib_tuple[3],
+            alpha=nvib_tuple[4],
+            mask=nvib_tuple[5],
+        )
+        kl_dirichlet = self.nvib_layer.kl_dirichlet(
+            alpha=nvib_tuple[4],
+            mask=nvib_tuple[5],
+        )
+        y, attn = self.attn(x_norm, nvib_tuple=nvib_tuple)
         if return_attention:
             return attn
         x = x + self.drop_path(y)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
+        return x, (kl_gaussian, kl_dirichlet)
 
 
 class PatchEmbed(nn.Module):
@@ -200,7 +284,7 @@ class NvibVisionTransformer(nn.Module):
 
         trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
-        self.apply(self._init_weights)
+        # self.apply(self._init_weights) 
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -256,14 +340,18 @@ class NvibVisionTransformer(nn.Module):
 
     def forward(self, x, ada_token=None, use_patches=False):
         x = self.prepare_tokens(x, ada_token)
+        all_kl_gaussian = []
+        all_kl_dirichlet = []
         for blk in self.blocks:
-            x = blk(x)
+            x, kls = blk(x)
+            all_kl_gaussian.append(kls[0])
+            all_kl_dirichlet.append(kls[1])
         x = self.norm(x)
-
         if use_patches:
             return x[:, 1:]
         else:
-            return x[:, 0]
+            # Using the CLS I assume
+            return x[:, 0] #, (all_kl_gaussian, all_kl_dirichlet)
 
     def get_last_selfattention(self, x):
         x = self.prepare_tokens(x)

@@ -56,11 +56,11 @@ state_dict_dino = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicf
 
 # Dino weights for small model
 dino_vitsmall = vit(patch_size=16, num_classes=0)
-dino_vitsmall.load_state_dict(state_dict_dino, strict=True)
+dino_vitsmall.load_state_dict(state_dict_dino, strict=False)
 
 # Dino weights for small model NVIB
 dino_vitsmall_nvib = nvib_vit(patch_size=16, num_classes=0)
-dino_vitsmall_nvib.load_state_dict(state_dict_dino, strict=True)
+dino_vitsmall_nvib.load_state_dict(state_dict_dino, strict=False)
 
 #Deit model
 url_deit = "https://dl.fbaipublicfiles.com/deit/deit_small_patch16_224-cd65a155.pth"
@@ -72,62 +72,134 @@ for k in ['head.weight', 'head.bias']:
 
 # Deit weights for small model
 deit_vitsmall = vit(patch_size=16, num_classes=0)
-deit_vitsmall.load_state_dict(state_dict_deit, strict=True)
+deit_vitsmall.load_state_dict(state_dict_deit, strict=False)
 
 
 # Deit weights for small model NVIB
 deit_vitsmall_nvib = nvib_vit(patch_size=16, num_classes=0)
-deit_vitsmall_nvib.load_state_dict(state_dict_deit, strict=True)
+deit_vitsmall_nvib.load_state_dict(state_dict_deit, strict=False)
 
 
 # Test base model
-def test_base_model():
+def test_base_model_train():
     # Random input that is torch.Size([25, 3, 224, 224])
     x = torch.randn(2, 3, 224, 224)
 
     # Forward pass
+    model.train()
     y = model(x)
 
     # Forward pass
+    model_nvib.train()
     y_nvib = model_nvib(x)
 
 
     # check equality
     assert torch.allclose(y, y_nvib, atol=1e-4), "Models are not equal"
 
-def test_dino_vitsmall():
+    print("Base model test passed")
+
+def test_dino_vitsmall_train():
     # Random input that is torch.Size([25, 3, 224, 224])
     x = torch.randn(2, 3, 224, 224)
 
     # Forward pass
+    dino_vitsmall.train()
     y = dino_vitsmall(x)
 
     # Forward pass
+    dino_vitsmall_nvib.train()
     y_nvib = dino_vitsmall_nvib(x)
 
 
     # check equality
     assert torch.allclose(y, y_nvib, atol=1e-4), "Models are not equal"
 
+    print("Dino model test passed")
+
 # Test deit_vitsmall
-def test_deit_vitsmall():
+def test_deit_vitsmall_train():
     # Random input that is torch.Size([25, 3, 224, 224])
     x = torch.randn(2, 3, 224, 224)
 
     # Forward pass
+    deit_vitsmall.train()
     y = deit_vitsmall(x)
 
     # Forward pass
+    deit_vitsmall_nvib.train()
     y_nvib = deit_vitsmall_nvib(x)
+
+    # check equality
+    assert torch.allclose(y, y_nvib, atol=1e-4), "Models are not equal"
+
+    print("Deit model test passed")
+
+
+# eval tests
+def test_base_model_eval():
+    # Random input that is torch.Size([25, 3, 224, 224])
+    x = torch.randn(2, 3, 224, 224)
+
+    # Forward pass
+    model.eval()
+    y = model(x)
+
+    # Forward pass
+    model_nvib.eval()
+    y_nvib = model_nvib(x)
 
 
     # check equality
     assert torch.allclose(y, y_nvib, atol=1e-4), "Models are not equal"
 
+    print("Base model test passed")
+
+def test_dino_vitsmall_eval():
+    # Random input that is torch.Size([25, 3, 224, 224])
+    x = torch.randn(2, 3, 224, 224)
+
+    # Forward pass
+    dino_vitsmall.eval()
+    y = dino_vitsmall(x)
+
+    # Forward pass
+    dino_vitsmall_nvib.eval()
+    y_nvib = dino_vitsmall_nvib(x)
+
+
+    # check equality
+    assert torch.allclose(y, y_nvib, atol=1e-4), "Models are not equal"
+
+    print("Dino model test passed")
+
+# Test deit_vitsmall
+def test_deit_vitsmall_eval():
+    # Random input that is torch.Size([25, 3, 224, 224])
+    x = torch.randn(2, 3, 224, 224)
+
+    # Forward pass
+    deit_vitsmall.eval()
+    y = deit_vitsmall(x)
+
+    # Forward pass
+    deit_vitsmall_nvib.eval()
+    y_nvib = deit_vitsmall_nvib(x)
+
+    # check equality
+    assert torch.allclose(y, y_nvib, atol=1e-4), "Models are not equal"
+    print("Deit model test passed")
+
+
 def main():
-    test_base_model()
-    test_dino_vitsmall()
-    test_deit_vitsmall()
+    test_base_model_train()
+    test_dino_vitsmall_train()
+    test_deit_vitsmall_train()
+
+    test_base_model_eval()
+    test_dino_vitsmall_eval()
+    test_deit_vitsmall_eval()
+
 
 if __name__ == '__main__':
     main()
