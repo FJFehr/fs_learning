@@ -1,14 +1,22 @@
 import os
+
 import numpy as np
 import torch
+
+from .deploy import (
+    ProtoNet_AdaTok,
+    ProtoNet_AdaTok_EntMin,
+    ProtoNet_Auto_Finetune,
+    ProtoNet_Finetune,
+)
+
 #from timm.models import create_model
 from .protonet import ProtoNet
-from .deploy import ProtoNet_Finetune, ProtoNet_Auto_Finetune, ProtoNet_AdaTok, ProtoNet_AdaTok_EntMin
 
 
 def get_backbone(args):
     if args.arch == 'vit_base_patch16_224_in21k':
-        from .vit_google import VisionTransformer, CONFIGS
+        from .vit_google import CONFIGS, VisionTransformer
 
         config = CONFIGS['ViT-B_16']
         model = VisionTransformer(config, 224)
@@ -28,19 +36,45 @@ def get_backbone(args):
         print('Pretrained weights found at {}'.format(pretrained_weights))
 
     elif args.arch == 'dino_base_patch16':
-        from . import vision_transformer as vit
+        if args.nvib:
+            print("Using NVIB Vision Transformer")
+            from . import nvib_vision_transformer as vit
+            nvib_kwargs = dict(
+                delta=args.delta,
+                alpha_tau=args.alpha_tau,
+                stdev_tau=args.stdev_tau,
+                lambda_klg=args.lambda_klg,
+                lambda_kld=args.lambda_kld,
+            )
 
-        model = vit.__dict__['vit_base'](patch_size=16, num_classes=0)
+        else:
+            from . import vision_transformer as vit
+            nvib_kwargs = {}
+
+        model = vit.__dict__['vit_base'](patch_size=16, num_classes=0, **nvib_kwargs)
         url = "dino_vitbase16_pretrain/dino_vitbase16_pretrain.pth"
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
 
-        model.load_state_dict(state_dict, strict=True)
+        model.load_state_dict(state_dict, strict=False)
         print('Pretrained weights found at {}'.format(url))
 
     elif args.arch == 'deit_base_patch16':
-        from . import vision_transformer as vit
+        if args.nvib:
+            print("Using NVIB Vision Transformer")
+            from . import nvib_vision_transformer as vit
+            nvib_kwargs = dict(
+                delta=args.delta,
+                alpha_tau=args.alpha_tau,
+                stdev_tau=args.stdev_tau,
+                lambda_klg=args.lambda_klg,
+                lambda_kld=args.lambda_kld,
+            )
 
-        model = vit.__dict__['vit_base'](patch_size=16, num_classes=0)
+        else:
+            from . import vision_transformer as vit
+            nvib_kwargs = {}
+
+        model = vit.__dict__['vit_base'](patch_size=16, num_classes=0, **nvib_kwargs)
         url = "https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth"
         state_dict = torch.hub.load_state_dict_from_url(url=url)["model"]
 
@@ -49,11 +83,24 @@ def get_backbone(args):
                 print(f"removing key {k} from pretrained checkpoint")
                 del state_dict[k]
 
-        model.load_state_dict(state_dict, strict=True)
+        model.load_state_dict(state_dict, strict=False)
         print('Pretrained weights found at {}'.format(url))
 
     elif args.arch == 'deit_small_patch16':
-        from . import vision_transformer as vit
+        if args.nvib:
+            print("Using NVIB Vision Transformer")
+            from . import nvib_vision_transformer as vit
+            nvib_kwargs = dict(
+                delta=args.delta,
+                alpha_tau=args.alpha_tau,
+                stdev_tau=args.stdev_tau,
+                lambda_klg=args.lambda_klg,
+                lambda_kld=args.lambda_kld,
+            )
+
+        else:
+            from . import vision_transformer as vit
+            nvib_kwargs = {}
 
         model = vit.__dict__['vit_small'](patch_size=16, num_classes=0)
         url = "https://dl.fbaipublicfiles.com/deit/deit_small_patch16_224-cd65a155.pth"
@@ -64,19 +111,32 @@ def get_backbone(args):
                 print(f"removing key {k} from pretrained checkpoint")
                 del state_dict[k]
 
-        model.load_state_dict(state_dict, strict=True)
+        model.load_state_dict(state_dict, strict=False)
         print('Pretrained weights found at {}'.format(url))
 
     elif args.arch == 'dino_small_patch16':
-        from . import vision_transformer as vit
+        if args.nvib:
+            print("Using NVIB Vision Transformer")
+            from . import nvib_vision_transformer as vit
+            nvib_kwargs = dict(
+                delta=args.delta,
+                alpha_tau=args.alpha_tau,
+                stdev_tau=args.stdev_tau,
+                lambda_klg=args.lambda_klg,
+                lambda_kld=args.lambda_kld,
+            )
 
-        model = vit.__dict__['vit_small'](patch_size=16, num_classes=0)
+        else:
+            from . import vision_transformer as vit
+            nvib_kwargs = {}
+
+        model = vit.__dict__['vit_small'](patch_size=16, num_classes=0, **nvib_kwargs)
 
         if not args.no_pretrain:
             url = "dino_deitsmall16_pretrain/dino_deitsmall16_pretrain.pth"
             state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
 
-            model.load_state_dict(state_dict, strict=True)
+            model.load_state_dict(state_dict, strict=False)
             print('Pretrained weights found at {}'.format(url))
 
     elif args.arch == 'beit_base_patch16_224_pt22k':

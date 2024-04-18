@@ -1,4 +1,5 @@
 import argparse
+
 import numpy as np
 
 
@@ -226,4 +227,13 @@ def get_args_parser():
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+
+    # NVIB parameters
+    parser.add_argument('--nvib', action='store_true', help='Use NVIB model')
+    parser.add_argument('--delta', default=1.0, type=float, help="Conditional prior for dirichlet KL divergence - increasing this allows regularisation to a larger alpha0p")
+    parser.add_argument('--alpha_tau', default=10.0, type=float, help="Initialisation for dirichlet projections")
+    parser.add_argument('--stdev_tau', default=0.0, type=float, help="Initialisation for gaussian variance projections")
+    parser.add_argument('--lambda_klg', default=0.0, type=float,help="Beta weight for the KL divergence between the Gaussian prior and the posterior")
+    parser.add_argument('--lambda_kld', default=0.0, type=float, help="Beta weight for the KL divergence between the Dirichlet prior and the posterior")
+
     return parser
