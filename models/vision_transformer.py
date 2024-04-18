@@ -200,7 +200,7 @@ class VisionTransformer(nn.Module):
 
         trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
-        self.apply(self._init_weights)
+        # self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):

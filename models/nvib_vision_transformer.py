@@ -89,8 +89,8 @@ class DenoisingAttention(nn.Module):
     ):
         super().__init__()
         self.num_heads = num_heads
-        head_dim = dim // num_heads
-        self.scale = qk_scale or head_dim**-0.5
+        self.head_dim = dim // num_heads
+        self.scale = qk_scale or self.head_dim**-0.5
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
@@ -103,6 +103,7 @@ class DenoisingAttention(nn.Module):
         # NVIB: In training the key is z and is sampled
         if nvib_tuple is not None:
             z, pi, mu, logvar, alpha, mask = nvib_tuple
+            Nl = z.shape[1] # Length including prior
 
         B, N, C = x.shape
         # Breakdown the qkv layer
@@ -111,23 +112,95 @@ class DenoisingAttention(nn.Module):
             b_q, b_k, b_v = self.qkv.bias.split(C, dim=0)
 
             q = x @ w_q.T + b_q
-            k = x @ w_k.T + b_k
-            v = x @ w_v.T + b_v
+            if self.training:
+                k = (z @ w_k.T + b_k) * self.scale
+                v = z @ w_v.T + b_v
+            else:
+                biased_var = torch.exp(logvar) + math.sqrt(self.head_dim)
+                k = (mu / biased_var) @ w_k.T + b_k
+                v = (mu) @ w_v.T + b_v
         else:
             q = x @ w_q.T
-            k = x @ w_k.T
-            v = x @ w_v.T
+            if self.training:
+                k = (z @ w_k.T) * self.scale
+                v = z @ w_v.T
+            else:
+                biased_var = torch.exp(logvar) + math.sqrt(self.head_dim)
+                k = (mu / biased_var) @ w_k.T
+                v = (mu) @ w_v.T
     
-        q = q.reshape(B, N, self.num_heads, C // self.num_heads).permute(0,2,1,3)
-        k = k.reshape(B, N, self.num_heads, C // self.num_heads).permute(0,2,1,3) * self.scale
-        v = v.reshape(B, N, self.num_heads, C // self.num_heads).permute(0,2,1,3)
+        q = q.reshape(B, N, self.num_heads,self.head_dim).permute(0,2,1,3)
+        k = k.reshape(B, Nl, self.num_heads,self.head_dim).permute(0,2,1,3) 
+        v = v.reshape(B, Nl, self.num_heads,self.head_dim).permute(0,2,1,3)
 
 
         attn = (q @ k.transpose(-2, -1)) 
+
+        pi = torch.clamp(pi.clone(), min=torch.finfo(pi.dtype).tiny)  # [B, S, 1]
+
+        if self.training:
+            # Pi term is clamped to avoid log(0)
+            pi = torch.clamp(pi.clone(), min=torch.finfo(pi.dtype).tiny)  # [B, S, 1]
+            # L2 norm term
+            l2_norm = (1 / (2 * math.sqrt(C // self.num_heads))) * (
+                (torch.norm(z, dim=-1, keepdim=True)) ** 2
+            )  # [B, S, 1]
+            # Include bias terms, copied over heads, broadcasted over T
+            attn += (torch.log(pi) - l2_norm).unsqueeze(1).permute(0, 1, 3, 2)
+
+        else:
+            biased_var = torch.exp(logvar) + math.sqrt(C // self.num_heads)
+
+            # Pi term is just alpha
+            pi = alpha
+
+            # L2 norm term
+            l2_norm = 0.5 * (
+                (torch.norm((mu / torch.sqrt(biased_var)), dim=-1, keepdim=True)) ** 2
+            )  # [B, S, 1]
+
+            # Variance penalty term
+            var_penalty = torch.sum(
+                0.5
+                * (torch.log(biased_var)),
+                dim=-1,
+                keepdim=True,
+            )  # [B, S, 1]
+            # Include bias terms, copied over heads, broadcasted over T
+            attn += (
+                (torch.log(pi) - l2_norm - var_penalty).unsqueeze(1).permute(0, 1, 3, 2)
+            )
+
+
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        if self.training:
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+
+        else:
+            ###### NVIB INTERPOLATION ######
+            # Interpolate the pre-projected value "mu" and post-projected query "projected_u"
+            # Create projected_u
+            w_k = w_k.view(self.num_heads, self.head_dim, -1)  # [nh, hs, C]
+            w_v = w_v.view(self.num_heads, self.head_dim, -1)  # [nh, hs, C]
+            if self.qkv_bias is not None:
+                b_v = b_v.view(self.num_heads, self.head_dim, 1)  # [nh, hs, C]
+            else:
+                b_v = torch.zeros(self.num_heads, self.head_dim, 1, dtype=q.dtype)
+            projected_u = torch.einsum("bhme, hep -> bhmp", q, w_k)
+            # out = torch.einsum("bhmp, bnp -> bhmn", projected_u, (mu/biased_var)) # Same as before
+            # Calculate the interpolation
+            output = (
+                torch.einsum("bhmn, bnp -> bhmp", attn, (torch.exp(logvar) / biased_var))
+                * projected_u
+            ) + torch.einsum("bhmn, bnp -> bhmp", attn, ((math.sqrt(self.head_dim) / biased_var) * mu))
+            # Project into the correct space and add the bias. The bias is theoretically
+            # multiplied by the attention_probs, but it noramlises so we can just add it.
+            x = torch.einsum("bhmp, hep -> bhme", output, w_v) + b_v.unsqueeze(0).permute(
+                0, 1, 3, 2
+            ) 
+            x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x, attn
@@ -146,6 +219,7 @@ class Block(nn.Module):
         drop_path=0.0,
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
+        **kwargs
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
@@ -160,11 +234,11 @@ class Block(nn.Module):
             prior_var= None,
             prior_log_alpha=(None),
             prior_log_alpha_stdev=(None),
-            delta=1,
+            delta=kwargs.get("delta", 1),
             nheads=num_heads,
-            alpha_tau=20,
+            alpha_tau=kwargs.get("alpha_tau", 10),
             mu_tau=1,
-            stdev_tau=0,
+            stdev_tau=kwargs.get("stdev_tau", 0),
         )
         torch.set_rng_state(rng_state)
 
@@ -273,6 +347,7 @@ class NvibVisionTransformer(nn.Module):
                     attn_drop=attn_drop_rate,
                     drop_path=dpr[i],
                     norm_layer=norm_layer,
+                    **kwargs
                 )
                 for i in range(depth)
             ]
@@ -284,7 +359,14 @@ class NvibVisionTransformer(nn.Module):
 
         trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
-        # self.apply(self._init_weights) 
+        # self.apply(self._init_weights)
+        # Reinitialise ALL the NVIB parameters
+        for i in range(0, len(self.blocks)):
+            # if layer has attribute nvib_layer, then init_parameters
+            block = self.blocks[i]
+            if hasattr(block, "nvib_layer"):
+                print("Layer " + str(i) + " has nvib_layer")
+                block.nvib_layer.init_parameters()
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
