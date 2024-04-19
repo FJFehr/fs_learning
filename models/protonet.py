@@ -35,7 +35,11 @@ class ProtoNet(nn.Module):
         num_classes = supp_y.max() + 1 # NOTE: assume B==1
 
         B, nSupp, C, H, W = supp_x.shape
-        supp_f = self.backbone.forward(supp_x.view(-1, C, H, W))
+        # check if NVIB model
+        if  self.backbone.__class__.__name__ == "NvibVisionTransformer":
+            supp_f, _ = self.backbone.forward(supp_x.view(-1, C, H, W))
+        else: 
+            supp_f = self.backbone.forward(supp_x.view(-1, C, H, W))
         supp_f = supp_f.view(B, nSupp, -1)
 
         supp_y_1hot = F.one_hot(supp_y, num_classes).transpose(1, 2) # B, nC, nSupp
@@ -44,8 +48,16 @@ class ProtoNet(nn.Module):
         prototypes = torch.bmm(supp_y_1hot.float(), supp_f)
         prototypes = prototypes / supp_y_1hot.sum(dim=2, keepdim=True) # NOTE: may div 0 if some classes got 0 images
 
-        feat = self.backbone.forward(x.view(-1, C, H, W))
+        # Get KL diveregence from the feat
+        if  self.backbone.__class__.__name__ == "NvibVisionTransformer":
+            feat, (klg, kld) = self.backbone.forward(x.view(-1, C, H, W))
+        else: 
+            feat = self.backbone.forward(x.view(-1, C, H, W))
+
         feat = feat.view(B, x.shape[1], -1) # B, nQry, d
 
         logits = self.cos_classifier(prototypes, feat) # B, nQry, nC
-        return logits
+        if  self.backbone.__class__.__name__ == "NvibVisionTransformer":
+            return logits, (klg, kld)
+        else:
+            return logits

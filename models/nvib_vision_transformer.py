@@ -223,33 +223,43 @@ class Block(nn.Module):
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
+        # NVIB layers is a list of true falses
+        if kwargs["nvib_layers"].pop(0):
+            # NVIB
+            rng_state = torch.get_rng_state()
+            # Nvib layer
+            self.nvib_layer = Nvib(
+                size_in=dim,
+                size_out=dim,
+                prior_mu= None,
+                prior_var= None,
+                prior_log_alpha=(None),
+                prior_log_alpha_stdev=(None),
+                delta=kwargs.get("delta", 1),
+                nheads=num_heads,
+                alpha_tau=kwargs.get("alpha_tau", 10),
+                mu_tau=1,
+                stdev_tau=kwargs.get("stdev_tau", 0),
+            )
+            torch.set_rng_state(rng_state)
 
-        # NVIB
-        rng_state = torch.get_rng_state()
-        # Nvib layer
-        self.nvib_layer = Nvib(
-            size_in=dim,
-            size_out=dim,
-            prior_mu= None,
-            prior_var= None,
-            prior_log_alpha=(None),
-            prior_log_alpha_stdev=(None),
-            delta=kwargs.get("delta", 1),
-            nheads=num_heads,
-            alpha_tau=kwargs.get("alpha_tau", 10),
-            mu_tau=1,
-            stdev_tau=kwargs.get("stdev_tau", 0),
-        )
-        torch.set_rng_state(rng_state)
-
-        self.attn = DenoisingAttention(
-            dim,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            qk_scale=qk_scale,
-            attn_drop=attn_drop,
-            proj_drop=drop,
-        )
+            self.attn = DenoisingAttention(
+                dim,
+                num_heads=num_heads,
+                qkv_bias=qkv_bias,
+                qk_scale=qk_scale,
+                attn_drop=attn_drop,
+                proj_drop=drop,
+            )
+        else:
+            self.attn = Attention(
+                dim,
+                num_heads=num_heads,
+                qkv_bias=qkv_bias,
+                qk_scale=qk_scale,
+                attn_drop=attn_drop,
+                proj_drop=drop,
+            )
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -258,27 +268,37 @@ class Block(nn.Module):
         )
 
     def forward(self, x, return_attention=False):
-        x_norm = self.norm1(x)
-        nvib_tuple = self.nvib_layer(x_norm)
+        if hasattr(self, "nvib_layer"):
 
-        # KL divergence loss
-        # Calculate KL divergences
-        kl_gaussian = self.nvib_layer.kl_gaussian(
-            mu=nvib_tuple[2],
-            logvar=nvib_tuple[3],
-            alpha=nvib_tuple[4],
-            mask=nvib_tuple[5],
-        )
-        kl_dirichlet = self.nvib_layer.kl_dirichlet(
-            alpha=nvib_tuple[4],
-            mask=nvib_tuple[5],
-        )
-        y, attn = self.attn(x_norm, nvib_tuple=nvib_tuple)
-        if return_attention:
-            return attn
-        x = x + self.drop_path(y)
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x, (kl_gaussian, kl_dirichlet)
+            x_norm = self.norm1(x) # Very similar
+            nvib_tuple = self.nvib_layer(x_norm)
+
+            # KL divergence loss
+            # Calculate KL divergences
+            kl_gaussian = self.nvib_layer.kl_gaussian(
+                mu=nvib_tuple[2],
+                logvar=nvib_tuple[3],
+                alpha=nvib_tuple[4],
+                mask=nvib_tuple[5],
+            )
+            kl_dirichlet = self.nvib_layer.kl_dirichlet(
+                alpha=nvib_tuple[4],
+                mask=nvib_tuple[5],
+            )
+            y, attn = self.attn(x_norm, nvib_tuple=nvib_tuple)
+            if return_attention:
+                return attn
+            x = x + self.drop_path(y)
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+            return x, (kl_gaussian, kl_dirichlet)
+        else:
+            x_norm = self.norm1(x)
+            y, attn = self.attn(x_norm)
+            if return_attention:
+                return attn
+            x = x + self.drop_path(y)
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+            return x
 
 
 class PatchEmbed(nn.Module):
@@ -321,6 +341,11 @@ class NvibVisionTransformer(nn.Module):
         **kwargs
     ):
         super().__init__()
+
+        # Make a boolean list of which layers are NVIB layers
+        kwargs["nvib_layers"] = [
+            i in kwargs["nvib_layers"] for i in range(depth)
+        ]
         self.num_features = self.embed_dim = embed_dim
 
         self.patch_embed = PatchEmbed(
@@ -359,7 +384,7 @@ class NvibVisionTransformer(nn.Module):
 
         trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
-        self.apply(self._init_weights)
+        # self.apply(self._init_weights)
         # Reinitialise ALL the NVIB parameters
         for i in range(0, len(self.blocks)):
             # if layer has attribute nvib_layer, then init_parameters
@@ -425,15 +450,18 @@ class NvibVisionTransformer(nn.Module):
         all_kl_gaussian = []
         all_kl_dirichlet = []
         for blk in self.blocks:
-            x, kls = blk(x)
-            all_kl_gaussian.append(kls[0])
-            all_kl_dirichlet.append(kls[1])
+            if hasattr(blk, "nvib_layer"):
+                x, kls = blk(x)
+                all_kl_gaussian.append(kls[0])
+                all_kl_dirichlet.append(kls[1])
+            else:
+                x = blk(x)
         x = self.norm(x)
         if use_patches:
             return x[:, 1:]
         else:
             # Using the CLS I assume
-            return x[:, 0] #, (all_kl_gaussian, all_kl_dirichlet)
+            return x[:, 0], (all_kl_gaussian, all_kl_dirichlet)
 
     def get_last_selfattention(self, x):
         x = self.prepare_tokens(x)

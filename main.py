@@ -26,7 +26,7 @@ def main(args):
     utils.init_distributed_mode(args)
 
     print(args)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device)
 
     # fix the seed for reproducibility
     seed = args.seed + utils.get_rank()
@@ -185,6 +185,8 @@ def main(args):
             mixup_fn,
             writer,
             set_training_mode=False,  # TODO: may need eval mode for finetuning
+            lambda_klg=args.lambda_klg,
+            lambda_kld=args.lambda_kld,
         )
 
         lr_scheduler.step(epoch)

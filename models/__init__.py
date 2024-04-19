@@ -45,6 +45,7 @@ def get_backbone(args):
                 stdev_tau=args.stdev_tau,
                 lambda_klg=args.lambda_klg,
                 lambda_kld=args.lambda_kld,
+                nvib_layers=args.nvib_layers,
             )
 
         else:
@@ -68,6 +69,7 @@ def get_backbone(args):
                 stdev_tau=args.stdev_tau,
                 lambda_klg=args.lambda_klg,
                 lambda_kld=args.lambda_kld,
+                nvib_layers=args.nvib_layers,
             )
 
         else:
@@ -96,6 +98,7 @@ def get_backbone(args):
                 stdev_tau=args.stdev_tau,
                 lambda_klg=args.lambda_klg,
                 lambda_kld=args.lambda_kld,
+                nvib_layers=args.nvib_layers,
             )
 
         else:
@@ -124,6 +127,7 @@ def get_backbone(args):
                 stdev_tau=args.stdev_tau,
                 lambda_klg=args.lambda_klg,
                 lambda_kld=args.lambda_kld,
+                nvib_layers=args.nvib_layers,
             )
 
         else:

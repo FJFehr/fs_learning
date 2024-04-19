@@ -231,9 +231,10 @@ def get_args_parser():
     # NVIB parameters
     parser.add_argument('--nvib', action='store_true', help='Use NVIB model')
     parser.add_argument('--delta', default=1.0, type=float, help="Conditional prior for dirichlet KL divergence - increasing this allows regularisation to a larger alpha0p")
-    parser.add_argument('--alpha_tau', default=10.0, type=float, help="Initialisation for dirichlet projections")
+    parser.add_argument('--alpha_tau', default=-100.0, type=float, help="Initialisation for dirichlet projections")
     parser.add_argument('--stdev_tau', default=0.0, type=float, help="Initialisation for gaussian variance projections")
     parser.add_argument('--lambda_klg', default=0.0, type=float,help="Beta weight for the KL divergence between the Gaussian prior and the posterior")
     parser.add_argument('--lambda_kld', default=0.0, type=float, help="Beta weight for the KL divergence between the Dirichlet prior and the posterior")
-
+    # List of layers to use
+    parser.add_argument('--nvib_layers', nargs="+", default=[11], help='List of layers to use - default is the last of 12 so index 11')
     return parser

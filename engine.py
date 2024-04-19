@@ -4,10 +4,9 @@ import warnings
 from typing import Iterable, Optional
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
-
 from timm.data import Mixup
-from timm.utils import accuracy, ModelEma
+from timm.utils import ModelEma, accuracy
+from torch.utils.tensorboard import SummaryWriter
 
 import utils.deit_util as utils
 from utils import AverageMeter, to_device
@@ -25,7 +24,10 @@ def train_one_epoch(data_loader: Iterable,
                     model_ema: Optional[ModelEma] = None,
                     mixup_fn: Optional[Mixup] = None,
                     writer: Optional[SummaryWriter] = None,
-                    set_training_mode=True):
+                    set_training_mode=True,
+                    lambda_klg: float = 0.0,
+                    lambda_kld: float = 0.0,
+                    ):
 
     global_step = epoch * len(data_loader)
 
@@ -47,12 +49,18 @@ def train_one_epoch(data_loader: Iterable,
 
         # forward
         with torch.cuda.amp.autocast(fp16):
-            output = model(SupportTensor, SupportLabel, x)
+            # check if NVIB model
+            if  model.backbone.__class__.__name__ == "NvibVisionTransformer":
+                output, (klg, kld) = model(SupportTensor, SupportLabel, x)
+            else: 
+                output = model(SupportTensor, SupportLabel, x)
 
         output = output.view(x.shape[0] * x.shape[1], -1)
         y = y.view(-1)
         loss = criterion(output, y)
+        loss += klg * lambda_klg + kld * lambda_kld
         loss_value = loss.item()
+        loss_value = loss
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
@@ -139,10 +147,15 @@ def _evaluate(data_loader, model, criterion, device, seed=None, ep=None):
         batch = to_device(batch, device)
         SupportTensor, SupportLabel, x, y = batch
 
+        
         # compute output
         with torch.cuda.amp.autocast():
-            output = model(SupportTensor, SupportLabel, x)
-
+            # check if NVIB model
+            if  model.backbone.__class__.__name__ == "NvibVisionTransformer":
+                output, (klg, kld) = model(SupportTensor, SupportLabel, x)
+            else: 
+                output = model(SupportTensor, SupportLabel, x)
+        
         output = output.view(x.shape[0] * x.shape[1], -1)
         y = y.view(-1)
         loss = criterion(output, y)
