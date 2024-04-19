@@ -230,7 +230,7 @@ class Nvib(nn.Module):
         if mask is not None:
             k0 = torch.sum(~mask, 1)  # [B]
         else:
-            k0 = torch.full((alpha.size(0),), alpha.size(1))  # [B]
+            k0 = torch.full((alpha.size(0),), alpha.size(1), device=alpha.device)  # [B]
 
         # Input length
         n = k0  # / self.kappa  # [B]
@@ -269,7 +269,7 @@ class Nvib(nn.Module):
         if mask is not None:
             k0 = torch.sum(~mask, 1)  # [B]
         else:
-            k0 = torch.full((alpha.size(0),), alpha.size(1))  # [B]
+            k0 = torch.full((alpha.size(0),), alpha.size(1), device=alpha.device)  # [B]
 
         # k0 = 1
         # Input length
