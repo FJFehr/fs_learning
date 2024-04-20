@@ -58,8 +58,8 @@ def train_one_epoch(data_loader: Iterable,
         output = output.view(x.shape[0] * x.shape[1], -1)
         y = y.view(-1)
         loss = criterion(output, y)
-        klg = torch.mean(torch.tensor([torch.mean(kl) for kl in klg]))
-        kld = torch.mean(torch.tensor([torch.mean(kl) for kl in kld]))
+        klg = torch.stack(klg).mean()
+        kld = torch.stack(kld).mean()
         loss += klg * lambda_klg + kld * lambda_kld
         loss_value = loss.item()
         loss_value = loss
