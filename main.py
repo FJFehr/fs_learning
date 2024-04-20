@@ -167,7 +167,7 @@ def main(args):
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
-    # max_accuracy = test_stats["acc1"]
+    max_accuracy = test_stats["acc1"]
 
     for epoch in range(args.start_epoch, args.epochs):
 
