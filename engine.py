@@ -58,9 +58,10 @@ def train_one_epoch(data_loader: Iterable,
         output = output.view(x.shape[0] * x.shape[1], -1)
         y = y.view(-1)
         loss = criterion(output, y)
-        klg = torch.stack(klg).mean()
-        kld = torch.stack(kld).mean()
-        loss += klg * lambda_klg + kld * lambda_kld
+        if  model.backbone.__class__.__name__ == "NvibVisionTransformer":
+            klg = torch.stack(klg).mean()
+            kld = torch.stack(kld).mean()
+            loss += klg * lambda_klg + kld * lambda_kld
         loss_value = loss.item()
         loss_value = loss
 
