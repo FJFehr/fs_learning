@@ -105,7 +105,7 @@ def get_backbone(args):
             from . import vision_transformer as vit
             nvib_kwargs = {}
 
-        model = vit.__dict__['vit_small'](patch_size=16, num_classes=0)
+        model = vit.__dict__['vit_small'](patch_size=16, num_classes=0, **nvib_kwargs)
         url = "https://dl.fbaipublicfiles.com/deit/deit_small_patch16_224-cd65a155.pth"
         state_dict = torch.hub.load_state_dict_from_url(url=url)["model"]
 
