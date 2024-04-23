@@ -236,5 +236,11 @@ def get_args_parser():
     parser.add_argument('--lambda_klg', default=0.0, type=float,help="Beta weight for the KL divergence between the Gaussian prior and the posterior")
     parser.add_argument('--lambda_kld', default=0.0, type=float, help="Beta weight for the KL divergence between the Dirichlet prior and the posterior")
     # List of layers to use
-    parser.add_argument('--nvib_layers', nargs="+", default=[11], help='List of layers to use - default is the last of 12 so index 11')
+    parser.add_argument(
+        "--nvib_layers",
+        nargs="+",
+        type=int,
+        default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        help="List of layers to add NVIB",
+    )
     return parser
